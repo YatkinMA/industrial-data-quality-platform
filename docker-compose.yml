@@ -9,11 +9,17 @@ services:
       ZOOKEEPER_CLIENT_PORT: 2181
     networks:
       - data-platform
+    healthcheck:  # ✅ ДОБАВЛЕНО
+      test: ["CMD", "zkServer.sh", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   kafka:
     image: confluentinc/cp-kafka:7.4.0
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_healthy  # ✅ ИЗМЕНЕНО: ждем готовности
     ports:
       - "9092:9092"
       - "29092:29092"
@@ -22,36 +28,25 @@ services:
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
     networks:
       - data-platform
+    healthcheck:  # ✅ ДОБАВЛЕНО
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s  # Даем время на запуск
 
   generator:
-    image: python:3.9-slim
-    command: >
-      sh -c "
-      echo 'Installing kafka-python...' &&
-      pip install kafka-python &&
-      echo 'Starting generator...' &&
-      python -c '
-      import json, time, random
-      from datetime import datetime
-      from kafka import KafkaProducer
-      
-      producer = KafkaProducer(bootstrap_servers=\"kafka:9092\")
-      print(\"Generator STARTED successfully!\")
-      
-      count = 0
-      while True:
-          data = {\"test\": count, \"time\": datetime.now().isoformat()}
-          producer.send(\"test-topic\", json.dumps(data).encode())
-          count += 1
-          if count % 20 == 0:
-              print(f\"Sent {count} messages\")
-          time.sleep(0.5)
-      '
-      "
+    build: ./generator  # ✅ ИЗМЕНЕНО: используем Dockerfile
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy  # ✅ ИЗМЕНЕНО: ждем готовности
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      KAFKA_TOPIC: "sensor-data"
+      GENERATOR_DELAY_MS: "500"
     networks:
       - data-platform
     restart: unless-stopped

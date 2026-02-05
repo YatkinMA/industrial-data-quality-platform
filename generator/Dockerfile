@@ -1,15 +1,13 @@
-# generator/Dockerfile
 FROM python:3.9-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
-
+# Копируем зависимости отдельно для кэширования
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py .
+# Копируем код
+COPY simple_gen.py .
 
-CMD ["python", "app.py"]
+# Запуск с ретраями
+CMD ["python", "simple_gen.py"]
