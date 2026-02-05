@@ -10,6 +10,7 @@ services:
       - "2181:2181"
     networks:
       - data-platform
+    mem_limit: 512m
 
   kafka:
     image: confluentinc/cp-kafka:7.4.0
@@ -22,12 +23,12 @@ services:
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_CREATE_TOPICS: "sensor-data:1:1"
     ports:
       - "29092:29092"
       - "9092:9092"
     networks:
       - data-platform
+    mem_limit: 1g
 
   clickhouse:
     image: clickhouse/clickhouse-server:23.8
@@ -44,49 +45,45 @@ services:
       - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - data-platform
-
-  kafdrop:
-    image: obsidiandynamics/kafdrop:4.0.1
-    depends_on:
-      - kafka
-    environment:
-      KAFKA_BROKERCONNECT: kafka:9092
-      JVM_OPTS: "-Xms32M -Xmx64M"
-    ports:
-      - "9001:9000"
-    networks:
-      - data-platform
+    mem_limit: 1g
 
   data-generator:
-    build:
-      context: ./generator
-      dockerfile: Dockerfile
-    depends_on:
-      - kafka
-    environment:
-      KAFKA_BROKER: kafka:9092
-      SENSOR_COUNT: 5
-    networks:
-      - data-platform
-
-  data-processor:
     image: python:3.9-slim
     command: >
       sh -c "
-      pip install kafka-python clickhouse-driver &&
-      cd /app && python fixed_processor.py
+      pip install kafka-python &&
+      python -c '
+      import json, time, random
+      from datetime import datetime
+      from kafka import KafkaProducer
+      import logging
+      
+      logging.basicConfig(level=logging.INFO)
+      logger = logging.getLogger(__name__)
+      
+      producer = KafkaProducer(
+          bootstrap_servers=\"kafka:9092\",
+          value_serializer=lambda v: json.dumps(v).encode(\"utf-8\")
+      )
+      
+      print(\"Generator started!\")
+      count = 0
+      while True:
+          data = {
+              \"timestamp\": datetime.utcnow().isoformat(),
+              \"sensor_id\": f\"sensor_{count % 100:03d}\",
+              \"value\": random.uniform(70, 80),
+              \"unit\": \"C\"
+          }
+          producer.send(\"sensor-data\", data)
+          count += 1
+          if count % 100 == 0:
+              print(f\"Sent {count} messages\")
+          time.sleep(0.1)
+      '
       "
     depends_on:
       - kafka
-      - clickhouse
-    environment:
-      KAFKA_BROKERS: kafka:9092
-      CLICKHOUSE_HOST: clickhouse
-      CLICKHOUSE_PORT: 9000
-      CLICKHOUSE_USER: admin
-      CLICKHOUSE_PASSWORD: admin123
-    volumes:
-      - ./processor:/app
     networks:
       - data-platform
     restart: unless-stopped
