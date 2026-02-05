@@ -1,0 +1,4 @@
+# spark/requirements.txt
+kafka-python==2.0.2
+clickhouse-driver==0.4.6
+pandas==2.1.0

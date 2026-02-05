@@ -1,0 +1,31 @@
+# spark/Dockerfile
+FROM bitnami/spark:3.5
+
+USER root
+
+# Устанавливаем Python зависимости
+RUN pip install --no-cache-dir \
+    kafka-python==2.0.2 \
+    clickhouse-driver==0.2.6 \
+    pandas==2.1.0
+
+# Скачиваем необходимые JAR файлы
+RUN curl -L -o /opt/bitnami/spark/jars/spark-sql-kafka-0-10_2.12-3.5.0.jar \
+    https://repo1.maven.org/maven2/org/apache/spark/spark-sql-kafka-0-10_2.12/3.5.0/spark-sql-kafka-0-10_2.12-3.5.0.jar
+
+RUN curl -L -o /opt/bitnami/spark/jars/kafka-clients-3.5.0.jar \
+    https://repo1.maven.org/maven2/org/apache/kafka/kafka-clients/3.5.0/kafka-clients-3.5.0.jar
+
+RUN curl -L -o /opt/bitnami/spark/jars/clickhouse-jdbc-0.4.6.jar \
+    https://repo1.maven.org/maven2/com/clickhouse/clickhouse-jdbc/0.4.6/clickhouse-jdbc-0.4.6.jar
+
+RUN curl -L -o /opt/bitnami/spark/jars/clickhouse-spark-runtime-0.4.6.jar \
+    https://repo1.maven.org/maven2/com/clickhouse/clickhouse-spark-runtime/0.4.6/clickhouse-spark-runtime-0.4.6.jar
+
+# Копируем приложение
+WORKDIR /app
+COPY apps/ .
+
+# Меняем владельца
+RUN chown -R 1001:1001 /opt/bitnami/spark/jars /app
+USER 1001
