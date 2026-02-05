@@ -10,17 +10,11 @@ services:
       - "2181:2181"
     networks:
       - data-platform
-    healthcheck:
-      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   kafka:
     image: confluentinc/cp-kafka:7.4.0
     depends_on:
-      zookeeper:
-        condition: service_healthy
+      - zookeeper
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
@@ -34,11 +28,6 @@ services:
       - "9092:9092"
     networks:
       - data-platform
-    healthcheck:
-      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
 
   clickhouse:
     image: clickhouse/clickhouse-server:23.8
@@ -55,17 +44,11 @@ services:
       - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - data-platform
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
 
   kafdrop:
     image: obsidiandynamics/kafdrop:4.0.1
     depends_on:
-      kafka:
-        condition: service_healthy
+      - kafka
     environment:
       KAFKA_BROKERCONNECT: kafka:9092
       JVM_OPTS: "-Xms32M -Xmx64M"
@@ -75,35 +58,42 @@ services:
       - data-platform
 
   data-generator:
-    build: ./generator
+    build:
+      context: ./generator
+      dockerfile: Dockerfile
     depends_on:
-      kafka:
-        condition: service_healthy
+      - kafka
     environment:
       KAFKA_BROKER: kafka:9092
       SENSOR_COUNT: 5
     networks:
       - data-platform
 
-  # Упрощенный data-processor
   data-processor:
-    build: ./processor
-    command: >-
+    image: python:3.9-slim
+    command: >
       sh -c "
       pip install kafka-python clickhouse-driver &&
       cd /app && python fixed_processor.py
       "
     depends_on:
-    - kafka
-    - clickhouse
-  environment:
-    KAFKA_BROKERS: kafka:9092
-    CLICKHOUSE_HOST: clickhouse
-    CLICKHOUSE_PORT: 9000
-    CLICKHOUSE_USER: admin
-    CLICKHOUSE_PASSWORD: admin123
-  volumes:
-    - ./processor:/app  # Это подключит ваш код с fixed_processor.py
-  networks:
-    - data-platform
-  restart: unless-stopped
+      - kafka
+      - clickhouse
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 9000
+      CLICKHOUSE_USER: admin
+      CLICKHOUSE_PASSWORD: admin123
+    volumes:
+      - ./processor:/app
+    networks:
+      - data-platform
+    restart: unless-stopped
+
+networks:
+  data-platform:
+    driver: bridge
+
+volumes:
+  clickhouse_data:
