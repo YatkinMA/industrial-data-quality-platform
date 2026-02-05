@@ -87,33 +87,23 @@ services:
 
   # Упрощенный data-processor
   data-processor:
-    image: python:3.9-slim
-    command: >
+    build: ./processor
+    command: >-
       sh -c "
       pip install kafka-python clickhouse-driver &&
-      cd /app &&
-      python simple_processor.py
+      cd /app && python fixed_processor.py
       "
     depends_on:
-      kafka:
-        condition: service_healthy
-      clickhouse:
-        condition: service_healthy
-    environment:
-      KAFKA_BROKERS: kafka:9092
-      CLICKHOUSE_HOST: clickhouse
-      CLICKHOUSE_PORT: 9000
-      CLICKHOUSE_USER: admin
-      CLICKHOUSE_PASSWORD: admin123
-    volumes:
-      - ./processor:/app
-    networks:
-      - data-platform
-    restart: unless-stopped
-
-networks:
-  data-platform:
-    driver: bridge
-
-volumes:
-  clickhouse_data:
+    - kafka
+    - clickhouse
+  environment:
+    KAFKA_BROKERS: kafka:9092
+    CLICKHOUSE_HOST: clickhouse
+    CLICKHOUSE_PORT: 9000
+    CLICKHOUSE_USER: admin
+    CLICKHOUSE_PASSWORD: admin123
+  volumes:
+    - ./processor:/app  # Это подключит ваш код с fixed_processor.py
+  networks:
+    - data-platform
+  restart: unless-stopped
