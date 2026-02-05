@@ -74,10 +74,11 @@ services:
     networks:
       - data-platform
 
-   data-generator:
+  data-generator:
     build: ./generator
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     environment:
       KAFKA_BROKER: kafka:9092
       SENSOR_COUNT: 5
@@ -94,8 +95,10 @@ services:
       python simple_processor.py
       "
     depends_on:
-      - kafka
-      - clickhouse
+      kafka:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
     environment:
       KAFKA_BROKERS: kafka:9092
       CLICKHOUSE_HOST: clickhouse
