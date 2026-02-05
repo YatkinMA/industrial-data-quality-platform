@@ -74,25 +74,25 @@ services:
     networks:
       - data-platform
 
-   data-generator:
-    build: ./generator
+  data-generator:
+    build:
+      context: ./generator
+      dockerfile: Dockerfile
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     environment:
       KAFKA_BROKER: kafka:9092
       SENSOR_COUNT: 5
     networks:
       - data-platform
+    restart: on-failure:5
 
-  # Упрощенный data-processor
+  # НОВЫЙ: Простой консьюмер на Python
   data-processor:
-    image: python:3.9-slim
-    command: >
-      sh -c "
-      pip install kafka-python clickhouse-driver &&
-      cd /app &&
-      python simple_processor.py
-      "
+    build:
+      context: ./processor
+      dockerfile: Dockerfile
     depends_on:
       - kafka
       - clickhouse
@@ -102,8 +102,6 @@ services:
       CLICKHOUSE_PORT: 9000
       CLICKHOUSE_USER: admin
       CLICKHOUSE_PASSWORD: admin123
-    volumes:
-      - ./processor:/app
     networks:
       - data-platform
     restart: unless-stopped

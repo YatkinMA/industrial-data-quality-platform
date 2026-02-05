@@ -1,7 +1,7 @@
--- clickhouse/init.sql
+-- clickhouse/init.sql (обновленная версия)
 CREATE DATABASE IF NOT EXISTS production;
 
--- Исправляем TTL: используем DateTime вместо DateTime64 для TTL
+-- Основная таблица с данными сенсоров
 CREATE TABLE IF NOT EXISTS production.sensor_data_raw
 (
     timestamp DateTime64(3),
@@ -13,36 +13,62 @@ CREATE TABLE IF NOT EXISTS production.sensor_data_raw
     factory String,
     line String,
     machine_id String,
-    ingestion_time DateTime DEFAULT now()  -- Используем DateTime для TTL
+    ingestion_time DateTime DEFAULT now(),
+    anomaly_score Float64 DEFAULT 0.0
 )
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (sensor_id, timestamp)
 TTL ingestion_time + INTERVAL 30 DAY;
 
-CREATE TABLE IF NOT EXISTS production.sensor_aggregates
+-- Агрегированные данные по минутам
+CREATE TABLE IF NOT EXISTS production.sensor_aggregates_1min
 (
-    window_start DateTime,
-    window_end DateTime,
+    minute DateTime,
     sensor_type String,
-    machine_id String,
+    factory String,
     avg_value Float64,
-    std_value Float64,
+    min_value Float64,
+    max_value Float64,
     record_count UInt32,
-    anomaly_count UInt32,
-    processing_time DateTime DEFAULT now()
+    anomaly_count UInt32
 )
-ENGINE = MergeTree()
-ORDER BY (window_start, sensor_type, machine_id);
+ENGINE = AggregatingMergeTree()
+ORDER BY (minute, sensor_type, factory);
 
--- Простое материализованное представление без TTL
-CREATE MATERIALIZED VIEW IF NOT EXISTS production.data_quality_daily
-ENGINE = SummingMergeTree()
-ORDER BY (factory, metric_date, metric_name) AS
+-- Материализованное представление для агрегации
+CREATE MATERIALIZED VIEW IF NOT EXISTS production.sensor_aggregates_1min_mv
+TO production.sensor_aggregates_1min AS
 SELECT
+    toStartOfMinute(timestamp) as minute,
+    sensor_type,
     factory,
-    toDate(timestamp) as metric_date,
-    'records_total' as metric_name,
-    count() as metric_value
+    avg(value) as avg_value,
+    min(value) as min_value,
+    max(value) as max_value,
+    count() as record_count,
+    countIf(anomaly_score > 0.5) as anomaly_count
 FROM production.sensor_data_raw
-GROUP BY factory, metric_date;
+GROUP BY minute, sensor_type, factory;
+
+-- Таблица для метрик качества данных
+CREATE TABLE IF NOT EXISTS production.data_quality_metrics
+(
+    metric_date Date,
+    metric_name String,
+    metric_value Float64,
+    factory String
+)
+ENGINE = SummingMergeTree()
+ORDER BY (metric_date, metric_name, factory);
+
+-- Представление для мониторинга качества
+CREATE MATERIALIZED VIEW IF NOT EXISTS production.data_quality_daily
+TO production.data_quality_metrics AS
+SELECT
+    toDate(timestamp) as metric_date,
+    'completeness' as metric_name,
+    countIf(value IS NOT NULL) / count() as metric_value,
+    factory
+FROM production.sensor_data_raw
+GROUP BY metric_date, factory;

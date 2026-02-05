@@ -74,39 +74,70 @@ services:
     networks:
       - data-platform
 
-   data-generator:
-    build: ./generator
+  data-generator:
+    build:
+      context: ./generator
+      dockerfile: Dockerfile
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     environment:
       KAFKA_BROKER: kafka:9092
       SENSOR_COUNT: 5
     networks:
       - data-platform
+    restart: on-failure:5
 
-  # Упрощенный data-processor
-  data-processor:
-    image: python:3.9-slim
-    command: >
-      sh -c "
-      pip install kafka-python clickhouse-driver &&
-      cd /app &&
-      python simple_processor.py
-      "
+  # ========== SPARK СЕРВИСЫ ==========
+ spark-master:
+    image: bitnami/spark:3.5
+    command: bin/spark-class org.apache.spark.deploy.master.Master
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    environment:
+      - SPARK_MODE=master
+      - SPARK_MASTER_HOST=spark-master
+    volumes:
+      - ./spark/jars:/opt/bitnami/spark/jars
+    networks:
+      - data-platform
+
+  spark-worker:
+    image: bitnami/spark:3.5
+    command: bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
     depends_on:
+      - spark-master
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=2G
+      - SPARK_WORKER_CORES=2
+    volumes:
+      - ./spark/jars:/opt/bitnami/spark/jars
+      - ./spark/apps:/opt/spark-apps
+    networks:
+      - data-platform
+
+  spark-job:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    depends_on:
+      - spark-master
       - kafka
       - clickhouse
     environment:
-      KAFKA_BROKERS: kafka:9092
-      CLICKHOUSE_HOST: clickhouse
-      CLICKHOUSE_PORT: 9000
-      CLICKHOUSE_USER: admin
-      CLICKHOUSE_PASSWORD: admin123
+      - SPARK_MASTER=spark://spark-master:7077
+      - KAFKA_BROKERS=kafka:9092
+      - CLICKHOUSE_HOST=clickhouse
+      - CLICKHOUSE_PORT=8123
+      - CLICKHOUSE_USER=admin
+      - CLICKHOUSE_PASSWORD=admin123
     volumes:
-      - ./processor:/app
+      - ./spark/apps:/app
     networks:
       - data-platform
-    restart: unless-stopped
 
 networks:
   data-platform:
