@@ -3,83 +3,51 @@ version: '3.8'
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
     ports:
       - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
     networks:
       - data-platform
-    mem_limit: 512m
 
   kafka:
     image: confluentinc/cp-kafka:7.4.0
     depends_on:
       - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-    ports:
-      - "29092:29092"
-      - "9092:9092"
     networks:
       - data-platform
-    mem_limit: 1g
 
-  clickhouse:
-    image: clickhouse/clickhouse-server:23.8
-    ports:
-      - "8123:8123"
-      - "9000:9000"
-    environment:
-      CLICKHOUSE_DB: production
-      CLICKHOUSE_USER: admin
-      CLICKHOUSE_PASSWORD: admin123
-      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
-    volumes:
-      - clickhouse_data:/var/lib/clickhouse
-      - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql
-    networks:
-      - data-platform
-    mem_limit: 1g
-
-  data-generator:
+  generator:
     image: python:3.9-slim
     command: >
       sh -c "
+      echo 'Installing kafka-python...' &&
       pip install kafka-python &&
+      echo 'Starting generator...' &&
       python -c '
       import json, time, random
       from datetime import datetime
       from kafka import KafkaProducer
-      import logging
       
-      logging.basicConfig(level=logging.INFO)
-      logger = logging.getLogger(__name__)
+      producer = KafkaProducer(bootstrap_servers=\"kafka:9092\")
+      print(\"Generator STARTED successfully!\")
       
-      producer = KafkaProducer(
-          bootstrap_servers=\"kafka:9092\",
-          value_serializer=lambda v: json.dumps(v).encode(\"utf-8\")
-      )
-      
-      print(\"Generator started!\")
       count = 0
       while True:
-          data = {
-              \"timestamp\": datetime.utcnow().isoformat(),
-              \"sensor_id\": f\"sensor_{count % 100:03d}\",
-              \"value\": random.uniform(70, 80),
-              \"unit\": \"C\"
-          }
-          producer.send(\"sensor-data\", data)
+          data = {\"test\": count, \"time\": datetime.now().isoformat()}
+          producer.send(\"test-topic\", json.dumps(data).encode())
           count += 1
-          if count % 100 == 0:
+          if count % 20 == 0:
               print(f\"Sent {count} messages\")
-          time.sleep(0.1)
+          time.sleep(0.5)
       '
       "
     depends_on:
@@ -91,6 +59,3 @@ services:
 networks:
   data-platform:
     driver: bridge
-
-volumes:
-  clickhouse_data:
